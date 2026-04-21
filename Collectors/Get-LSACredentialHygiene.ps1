@@ -1,17 +1,17 @@
 #requires -Version 5.1
 
+ 
 $ctx = $global:BR2.Context
-
+ 
 $wdigestPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest'
 $useLogonCred = Get-RegistryValueSafe -Path $wdigestPath -Name 'UseLogonCredential'
-
+ 
 $BR2.Raw.WDigest = @{
     UseLogonCredential = $useLogonCred
     Path               = $wdigestPath
 }
-
-# On Windows 7 / Server 2008 R2, WDigest defaults to caching even without the
-# flag set - that's a separate finding because the attack path differs.
+ 
+# On Windows 7 / Server 2008 R2, WDigest defaults to caching even without the flag set - that's a separate finding because the attack path differs.
 if ($ctx.BuildNumber -lt 9600) {
     # Pre-2012 R2: WDigest is on by default regardless of UseLogonCredential
     $BR2.Findings.Add( (New-Finding `
@@ -45,21 +45,21 @@ if ($ctx.BuildNumber -lt 9600) {
             Path               = $wdigestPath
         } `
         -Remediation 'Set UseLogonCredential to 0 (DWORD). Default since Windows 8.1 / Server 2012 R2.' `
-        -OperatorNotes 'Once set, the flag does not retroactively cache credentials for already-logged-on users. You must wait for a new logon or coerce one (e.g. Run-As, scheduled task). Dump LSASS with nanodump / MiniDumpWriteDump via BOF after.' `
+        -OperatorNotes 'Once set, the flag does not retroactively cache credentials for already-logged-on users; you must wait for a new logon or coerce one (e.g. Run-As, scheduled task). Dump LSASS with nanodump / MiniDumpWriteDump via BOF after.' `
         -References @('https://learn.microsoft.com/en-us/troubleshoot/windows-server/windows-security/credentials-protection-and-management')
     ))
 }
-
+ 
 if (Test-OSPrecondition -Requirements @{ RequiresCapability = 'RunAsPPL' }) {
     $lsaPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
     $runAsPPL     = Get-RegistryValueSafe -Path $lsaPath -Name 'RunAsPPL'
     $runAsPPLBoot = Get-RegistryValueSafe -Path $lsaPath -Name 'RunAsPPLBoot'
-
+ 
     $BR2.Raw.LSAProtection = @{
         RunAsPPL     = $runAsPPL
         RunAsPPLBoot = $runAsPPLBoot
     }
-
+ 
     if (-not $runAsPPL -or $runAsPPL -eq 0) {
         $BR2.Findings.Add( (New-Finding `
             -CheckID 'BR-LSA-002' `
@@ -74,14 +74,14 @@ if (Test-OSPrecondition -Requirements @{ RequiresCapability = 'RunAsPPL' }) {
                 RunAsPPLBoot = $runAsPPLBoot
             } `
             -Remediation 'Set RunAsPPL=1. Enable RunAsPPLBoot=1 to UEFI-lock the flag so it survives boot-time tampering on supported hardware.' `
-            -OperatorNotes 'Without PPL, LSASS can be dumped with any admin process. PPL bypasses exist (signed vulnerable drivers via BYOVD, Mimikatz !+ driver) but creates a decent amount of noise.' `
+            -OperatorNotes 'Without PPL, LSASS can be dumped with any admin process. PPL bypasses exist (signed vulnerable drivers via BYOVD, Mimikatz !+ driver) but is much more noisy.' `
             -References @(
                 'https://learn.microsoft.com/en-us/windows-server/security/credentials-protection-and-management/configuring-additional-lsa-protection',
                 'https://itm4n.github.io/lsass-runasppl/'
             )
         ))
     }
-
+ 
     # PPLWithSigner is a stronger mode only available on Win11 22H2+ / Server 2025
     if (Test-OSPrecondition -Requirements @{ RequiresCapability = 'PPLWithSigner' }) {
         if ($runAsPPL -ne 2) {
@@ -105,14 +105,14 @@ if (Test-OSPrecondition -Requirements @{ RequiresCapability = 'RunAsPPL' }) {
         }
     }
 }
-
+ 
 if (Test-OSPrecondition -Requirements @{ RequiresCapability = 'CredentialGuard' }) {
     $cgFlags = Get-RegistryValueSafe -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\LSA' -Name 'LsaCfgFlags'
     $BR2.Raw.CredentialGuard = @{ LsaCfgFlags = $cgFlags }
-
+ 
     # Also check VBS is actually running (Credential Guard is useless without it)
     $cgRunning = ($ctx.VBSEnabled -eq $true)
-
+ 
     if (-not $cgFlags -or $cgFlags -eq 0 -or -not $cgRunning) {
         $BR2.Findings.Add( (New-Finding `
             -CheckID 'BR-LSA-003' `
@@ -137,14 +137,14 @@ if (Test-OSPrecondition -Requirements @{ RequiresCapability = 'CredentialGuard' 
         ))
     }
 }
-
+ 
 if (Test-OSPrecondition -Requirements @{ DomainJoined = $true }) {
     $cachedCount = Get-RegistryValueSafe -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name 'CachedLogonsCount'
     $cachedCountInt = 10
     if ($cachedCount) { [int]::TryParse($cachedCount, [ref]$cachedCountInt) | Out-Null }
-
+ 
     $BR2.Raw.CachedLogons = $cachedCountInt
-
+ 
     # Laptops reasonably need 1-4; servers should be 0; workstations 0-4
     $threshold = if ($ctx.IsServer) { 0 } else { 4 }
     if ($cachedCountInt -gt $threshold) {
@@ -167,12 +167,12 @@ if (Test-OSPrecondition -Requirements @{ DomainJoined = $true }) {
         ))
     }
 }
-
+ 
 $winlogon = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
 $defaultPw   = Get-RegistryValueSafe -Path $winlogon -Name 'DefaultPassword'
 $defaultUser = Get-RegistryValueSafe -Path $winlogon -Name 'DefaultUserName'
 $defaultDom  = Get-RegistryValueSafe -Path $winlogon -Name 'DefaultDomainName'
-
+ 
 if ($defaultPw) {
     $BR2.Findings.Add( (New-Finding `
         -CheckID 'BR-LSA-008' `
@@ -189,44 +189,66 @@ if ($defaultPw) {
             Path               = $winlogon
         } `
         -Remediation 'Configure autologon via Sysinternals autologon.exe which stores the password in an LSA secret, or eliminate autologon.' `
-        -OperatorNotes "Any authenticated user on this host can read this value. Confirmed credential for $defaultDom\$defaultUser. Try against SMB, RDP, Entra ID. Reuse is common." `
+        -OperatorNotes "Any authenticated user on this host can read this value. Confirmed credential for $defaultDom\$defaultUser. Try against SMB, RDP, Entra ID because reuse is common." `
         -References @('https://attack.mitre.org/techniques/T1552/002/')
     ))
 }
-
-$credPaths = @(
+ 
+# Credential Manager: %LOCALAPPDATA%\Microsoft\Credentials and %APPDATA%\Microsoft\Credentials
+# Each file here is a DPAPI blob for one saved credential. No extension, random hex filename.
+$credBlobs = @()
+foreach ($p in @(
     (Join-Path $env:LOCALAPPDATA 'Microsoft\Credentials'),
-    (Join-Path $env:APPDATA      'Microsoft\Credentials'),
-    (Join-Path $env:LOCALAPPDATA 'Microsoft\Vault')
-)
-$credFiles = foreach ($p in $credPaths) {
-    if (Test-Path $p) { Get-ChildItem -Path $p -Force -ErrorAction SilentlyContinue }
+    (Join-Path $env:APPDATA      'Microsoft\Credentials')
+)) {
+    if (Test-Path $p) {
+        $credBlobs += Get-ChildItem -Path $p -Force -ErrorAction SilentlyContinue |
+                      Where-Object { -not $_.PSIsContainer }
+    }
 }
-$credFiles = @($credFiles)
-
-if ($credFiles.Count -gt 0) {
+ 
+# Windows Vault: %LOCALAPPDATA%\Microsoft\Vault and %APPDATA%\Microsoft\Vault
+# Each GUID subdir always contains Policy.vpol (schema - NOT a credential).
+# Actual stored vault credentials are *.vcrd files inside those subdirs.
+# Filtering to .vcrd avoids false positives from Policy.vpol which is always present.
+$vcrdFiles = @()
+foreach ($p in @(
+    (Join-Path $env:LOCALAPPDATA 'Microsoft\Vault'),
+    (Join-Path $env:APPDATA      'Microsoft\Vault')
+)) {
+    if (Test-Path $p) {
+        $vcrdFiles += Get-ChildItem -Path $p -Recurse -Force -Filter '*.vcrd' -ErrorAction SilentlyContinue |
+                      Where-Object { -not $_.PSIsContainer }
+    }
+}
+ 
+$allCredFiles = @($credBlobs) + @($vcrdFiles)
+ 
+if ($allCredFiles.Count -gt 0) {
     $BR2.Findings.Add( (New-Finding `
         -CheckID 'BR-LSA-010' `
         -Category 'LSA' `
-        -Title "$($credFiles.Count) stored credentials in Credential Manager / Vault" `
+        -Title "$($allCredFiles.Count) stored credential(s) in Credential Manager / Vault ($($credBlobs.Count) DPAPI blob(s), $($vcrdFiles.Count) Vault .vcrd(s))" `
         -Severity 'Medium' `
         -Exploitability 'High' `
         -AttackPath 'DPAPI credential recovery from current user context' `
         -MITRE 'T1555.004' `
         -Evidence @{
-            FileCount = $credFiles.Count
-            Paths     = $credFiles | Select-Object -First 10 -ExpandProperty FullName
+            DPAPIBlobCount = $credBlobs.Count
+            VaultVcrdCount = $vcrdFiles.Count
+            DPAPIBlobs     = @($credBlobs | Select-Object -First 10 -ExpandProperty FullName)
+            VaultVcrds     = @($vcrdFiles | Select-Object -First 10 -ExpandProperty FullName)
         } `
-        -Remediation 'Audit stored credentials; remove unused RDP, SMB and web credentials.' `
-        -OperatorNotes "As the owning user: SharpDPAPI credentials. From SYSTEM: need the user's DPAPI master key (HKCU\SOFTWARE\Microsoft\Protect or %APPDATA%\Microsoft\Protect\<SID>). Watch for TERMSRV/* (cached RDP) and MicrosoftOffice16_Data (cached O365)." `
+        -Remediation 'Audit stored credentials via Credential Manager UI; remove unused RDP, SMB and web credentials.' `
+        -OperatorNotes "As the owning user: SharpDPAPI credentials. From SYSTEM: need the user's DPAPI master key (%APPDATA%\Microsoft\Protect\<SID>). Watch for TERMSRV/* (cached RDP) and MicrosoftOffice16_Data (cached O365) in the blob names after decryption." `
         -References @('https://github.com/GhostPack/SharpDPAPI')
     ))
 }
-
+ 
 if (Test-OSPrecondition -Requirements @{ DC = $false }) {
     $lsaSys = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
     $latfp = Get-RegistryValueSafe -Path $lsaSys -Name 'LocalAccountTokenFilterPolicy'
-
+ 
     if ($latfp -eq 1) {
         $BR2.Findings.Add( (New-Finding `
             -CheckID 'BR-LAT-003' `
@@ -238,7 +260,7 @@ if (Test-OSPrecondition -Requirements @{ DC = $false }) {
             -MITRE @('T1550.002','T1078.003') `
             -Evidence @{ LocalAccountTokenFilterPolicy = 1; Path = $lsaSys } `
             -Remediation 'Set LocalAccountTokenFilterPolicy=0. Prefer LAPS-managed local admin per host.' `
-            -OperatorNotes 'With LATFP=1 any local admin (not just RID-500) works for remote admin over SMB/WMI with its NT hash. Combined with shared local admin passwords across the estate this is one of the fastest lateral-movement methods.' `
+            -OperatorNotes 'With LATFP=1 any local admin (not just RID-500) works for remote admin over SMB/WMI with its NT hash.' `
             -References @(
                 'https://learn.microsoft.com/en-us/troubleshoot/windows-server/windows-security/user-account-control-and-remote-restriction',
                 'https://www.harmj0y.net/blog/redteaming/pass-the-hash-is-dead-long-live-localaccounttokenfilterpolicy/'
@@ -246,3 +268,5 @@ if (Test-OSPrecondition -Requirements @{ DC = $false }) {
         ))
     }
 }
+ 
+
