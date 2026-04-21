@@ -12,7 +12,8 @@ BuildReview2 is a passive Windows host build review tool. It reads
 configuration state, registry values, service settings, and file ACLs
 and maps what it finds to known attack paths. It does not exploit
 anything, extract credentials, or modify any system state (see the
-Passive Behaviour section below).
+Passive Behaviour section below). It will make a couple temporary files
+though so just a heads up.
 
 Run it on a host to get a prioritised list of misconfigurations sorted
 by exploitability and severity, exported as HTML, Markdown,
@@ -22,11 +23,11 @@ JSON, or CSV.
 
 ## Requirements
 
-- Windows 10 / Windows Server 2016 or later
+- Windows 10 / Windows Server 2016 or later (but feel free to test on older versions)
 - PowerShell 5.1 or later (built into all supported Windows versions)
 - No additional modules required for basic operation
 - The `ActiveDirectory` module improves coverage on domain-joined hosts
-  but is not mandatory - collectors that need it fail gracefully
+  but is not mandatory as collectors that need it will just skip
 
 **Elevation:** The tool runs as a standard user but several checks
 require admin. Running elevated produces substantially more findings.
@@ -38,7 +39,7 @@ Checks that need elevation and don't have it are logged in the
 ## Installation
 
 Extract the zip and run from the extracted folder. No installation step
-is required - the module loads on demand.
+is required as the module loads on demand.
 
 ```powershell
 Expand-Archive -Path .\BuildReview2.zip -DestinationPath .\
@@ -75,10 +76,9 @@ BuildReview2\
 Import-Module .\BuildReview2\BuildReview2.psd1
 ```
 
-If you receive an execution policy error:
+If you receive an execution policy error (I recommend doing this anyway):
 
 ```powershell
-# Temporarily allow the import for this session only
 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
 Import-Module .\BuildReview2\BuildReview2.psd1
 ```
@@ -93,14 +93,13 @@ are written. The module creates the folder if it does not already exist.
 Invoke-BuildReview -OutputPath C:\Results
 
 # Elevated session (open PowerShell as Administrator first)
-# The same command - the tool detects elevation automatically
 Invoke-BuildReview -OutputPath C:\Results
 ```
 
-When the tool starts it prints a pre-flight summary:
+When the tool starts it prints a host summary:
 
 ```
-=== BuildReview2 pre-flight ===
+=== BuildReview2 Computer Info Checks ===
 Host          : DESKTOP-ABC123
 OS            : Windows 11 Pro (build 22631.4169, edition Professional)
 Role          : Client
@@ -281,7 +280,7 @@ no output and no findings.
 ### HTML
 
 A single self-contained file with no external dependencies. Open in any
-browser. Includes:
+browser (I say any, but if you are using IE I lose hope). Includes:
 
 - Host context panel (OS, role, Entra state, hardware security)
 - Finding count by severity
@@ -342,7 +341,7 @@ Both are read-in-effect operations that leave no persistent artefact.
 
 ---
 
-## Troubleshooting
+## Troubleshooting during testing (feel free to message or drop an issue if not below)
 
 **"Access is denied" on multiple checks**
 
