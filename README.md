@@ -7,7 +7,7 @@ severity and exploitability, and exported in HTML, JSON, or Markdown.
 
 ## Why this rewrite
 
-The original tool gave a pass/fail per registry setting. For a red team build
+The original tool gave a pass/fail per registry setting. For a purple-team focused build
 review that's the wrong unit of analysis as what matters is whether the host
 (plus its place in the domain) yields a path to lateral movement, credential
 theft, or escalation. This rewrite keeps the collection approach (PowerShell,
